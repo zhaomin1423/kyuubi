@@ -16,16 +16,20 @@
  */
 package org.apache.kyuubi.engine.hive.yarn
 
+import java.nio.ByteBuffer
+import java.util
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+import scala.collection.JavaConverters._
 
 import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.hadoop.io.DataOutputBuffer
 import org.apache.hadoop.ipc.CallerContext
 import org.apache.hadoop.security.UserGroupInformation
 import org.apache.hadoop.yarn.api.ApplicationConstants.Environment
 import org.apache.hadoop.yarn.api.protocolrecords.GetNewApplicationResponse
-import org.apache.hadoop.yarn.api.records.{ApplicationId, ApplicationSubmissionContext, ContainerLaunchContext, LocalResource, Resource}
+import org.apache.hadoop.yarn.api.records.{ApplicationAccessType, ApplicationId, ApplicationSubmissionContext, ContainerLaunchContext, LocalResource, Resource}
 import org.apache.hadoop.yarn.client.api.{YarnClient, YarnClientApplication}
 import org.apache.hadoop.yarn.conf.YarnConfiguration
 import org.apache.hadoop.yarn.util.Records
@@ -38,6 +42,7 @@ import org.apache.kyuubi.util.KyuubiHadoopUtils
 
 
 
+
 class HiveYarnClient(val args: ClientArguments, kyuubiConf: KyuubiConf) extends Logging {
 
   private val yarnClient = YarnClient.createYarnClient()
@@ -45,6 +50,7 @@ class HiveYarnClient(val args: ClientArguments, kyuubiConf: KyuubiConf) extends 
   private val memory = kyuubiConf.get(ENGINE_HIVE_YARN_MEMORY)
   private val memoryOverhead = kyuubiConf.get(ENGINE_HIVE_YARN_MEMORY_OVERHEAD)
   private val cores = kyuubiConf.get(ENGINE_HIVE_YARN_CORES)
+  private val currentUser: UserGroupInformation = UserGroupInformation.getCurrentUser
 
   private var stagingDirPath: Path = _
 
@@ -82,19 +88,69 @@ class HiveYarnClient(val args: ClientArguments, kyuubiConf: KyuubiConf) extends 
 
   private def createContainerLaunchContext(): ContainerLaunchContext = {
     info("Setting up container launch context for AM.")
-    val launchEnv = setupLunchEnv()
-    val localResources = prepareLocalResources()
-
     val amContainer = Records.newRecord(classOf[ContainerLaunchContext])
-    import scala.collection.JavaConverters._
-    amContainer.setEnvironment(launchEnv.asJava)
-    amContainer.setLocalResources(localResources.asJava)
+    setupEnvironment(amContainer)
+    setupLocalResources(amContainer)
+    setupCommands(amContainer)
+    setupSecurityToken(amContainer)
+    setupACLS(amContainer)
+    amContainer
+  }
 
+  private def setupEnvironment(amContainer: ContainerLaunchContext): Unit = {
+    val launchEnv = setupLunchEnv()
+    amContainer.setEnvironment(launchEnv.asJava)
+  }
+
+  private def setupLocalResources(amContainer: ContainerLaunchContext): Unit = {
+    val localResources = prepareLocalResources()
+    amContainer.setLocalResources(localResources.asJava)
+  }
+
+  private def setupCommands(amContainer: ContainerLaunchContext): Unit = {
     val javaOpts = ListBuffer[String]()
     javaOpts += "-Xmx" + memory + "m"
     javaOpts += "-Djava.io.tmpdir=" +
       buildPath(Environment.PWD.$$(), YarnConfiguration.DEFAULT_CONTAINER_TEMP_DIR)
-    null
+
+    val amClass = classOf[HiveApplicationMaster].getCanonicalName
+
+    val amArgs = Seq[String]
+
+    val commands = Seq[String]()
+
+    val printableCommands = commands.map { s =>
+      if (s == null) {
+        "null"
+      } else {
+        s
+      }
+    }.toList
+    amContainer.setCommands(printableCommands.asJava)
+  }
+
+  private def setupSecurityToken(amContainer: ContainerLaunchContext): Unit = {
+    val credentials = currentUser.getCredentials
+    val dataOutputBuffer = new DataOutputBuffer()
+    credentials.writeTokenStorageToStream(dataOutputBuffer)
+    amContainer.setTokens(ByteBuffer.wrap(dataOutputBuffer.getData))
+  }
+
+  private def setupACLS(amContainers: ContainerLaunchContext): Unit = {
+    val yarnACLs = hadoopConf.get(YarnConfiguration.YARN_ADMIN_ACL)
+    val adminAcl = if (yarnACLs == null) {
+      currentUser.getShortUserName
+    } else if (yarnACLs == "*") {
+      "*"
+    } else {
+      (yarnACLs.split(',').map(_.trim).filter(_.nonEmpty).toSet +
+        currentUser.getShortUserName).mkString(",")
+    }
+
+    val acls = new util.HashMap[ApplicationAccessType, String]()
+    acls.put(ApplicationAccessType.MODIFY_APP, adminAcl)
+    acls.put(ApplicationAccessType.VIEW_APP, adminAcl)
+    amContainers.setApplicationACLs(acls)
   }
 
   /**
