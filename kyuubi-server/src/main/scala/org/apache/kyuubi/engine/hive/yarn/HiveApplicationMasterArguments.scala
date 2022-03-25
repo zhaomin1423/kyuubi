@@ -14,10 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kyuubi.engine.hive
+package org.apache.kyuubi.engine.hive.yarn
 
-import org.apache.kyuubi.Logging
-
-class HiveApplicationMaster(args: HiveApplicationMasterArguments) extends Logging {
-
+class HiveApplicationMasterArguments(val args: Array[String]) {
+  var userJar: String = null
 }

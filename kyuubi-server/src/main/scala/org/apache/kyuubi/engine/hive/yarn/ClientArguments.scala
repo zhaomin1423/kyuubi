@@ -14,8 +14,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.kyuubi.engine.hive
+package org.apache.kyuubi.engine.hive.yarn
 
-class HiveApplicationMasterArguments(val args: Array[String]) {
-  var userJar: String = null
+import scala.collection.mutable.ArrayBuffer
+
+class ClientArguments(args: Array[String]) {
+
+  var jar: String = null
+  var mainClass: String = null
+  var userArgs: ArrayBuffer[String] = new ArrayBuffer[String]()
+
+  private def parseArgs(inputArgs: List[String]): Unit = {
+    var args = inputArgs
+
+    while (!args.isEmpty) {
+      args match {
+        case "--jars" :: value :: tail =>
+          jar = value
+          args = tail
+        case _ =>
+          throw new IllegalArgumentException(getUsageMessage(args))
+      }
+    }
+  }
+
+  private def getUsageMessage(unknownParam: List[String] = null): String = {
+    val message = if (unknownParam != null) s"Unknown/unsupported param $unknownParam\n" else ""
+    message
+  }
+
 }
