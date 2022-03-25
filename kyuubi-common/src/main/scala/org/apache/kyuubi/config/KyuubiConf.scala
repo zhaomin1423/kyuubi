@@ -1289,4 +1289,40 @@ object KyuubiConf {
       .version("1.6.0")
       .stringConf
       .createWithDefault("yyyy-MM-dd HH:mm:ss.SSS")
+
+  val ENGINE_HIVE_YARN_MEMORY: ConfigEntry[Int] =
+    buildConf("engine.hive.yarn.app.memory")
+      .doc("MB")
+      .version("1.6.0")
+      .intConf
+      .createWithDefault(2048)
+
+  val ENGINE_HIVE_YARN_MEMORY_OVERHEAD: ConfigEntry[Int] =
+    buildConf("engine.hive.yarn.app.memoryOverhead")
+      .doc("")
+      .version("1.6.0")
+      .intConf
+      .createWithDefault(512)
+
+  val ENGINE_HIVE_YARN_CORES: ConfigEntry[Int] =
+    buildConf("engine.hive.yarn.app.cores")
+      .doc("")
+      .version("1.6.0")
+      .intConf
+      .createWithDefault(2)
+
+  val ENGINE_HIVE_YARN_QUEUE: ConfigEntry[String] =
+    buildConf("engine.hive.yarn.queue")
+      .doc("")
+      .version("1.6.0")
+      .stringConf
+      .createWithDefault("default")
+
+  val ENGINE_HIVE_YARN_MAX_ATTEMPTS: ConfigEntry[Int] =
+    buildConf("engine.hive.yarn.maxAttempts")
+      .doc("")
+      .version("1.6.0")
+      .intConf
+      .createWithDefault(3)
+
 }

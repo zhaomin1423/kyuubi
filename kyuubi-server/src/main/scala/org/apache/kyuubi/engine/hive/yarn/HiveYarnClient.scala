@@ -16,24 +16,35 @@
  */
 package org.apache.kyuubi.engine.hive.yarn
 
+
+import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
+
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.ipc.CallerContext
 import org.apache.hadoop.security.UserGroupInformation
+import org.apache.hadoop.yarn.api.ApplicationConstants.Environment
 import org.apache.hadoop.yarn.api.protocolrecords.GetNewApplicationResponse
-import org.apache.hadoop.yarn.api.records.{ApplicationId, ContainerLaunchContext}
-import org.apache.hadoop.yarn.client.api.YarnClient
+import org.apache.hadoop.yarn.api.records.{ApplicationId, ApplicationSubmissionContext, ContainerLaunchContext, LocalResource, Resource}
+import org.apache.hadoop.yarn.client.api.{YarnClient, YarnClientApplication}
 import org.apache.hadoop.yarn.conf.YarnConfiguration
+import org.apache.hadoop.yarn.util.Records
+
 import org.apache.kyuubi.Logging
 import org.apache.kyuubi.config.KyuubiConf
-import org.apache.kyuubi.engine.hive.yarn.HiveYarnClient.KYUUBI_HIVE_STAGING
+import org.apache.kyuubi.config.KyuubiConf.{ENGINE_HIVE_YARN_CORES, ENGINE_HIVE_YARN_MAX_ATTEMPTS, ENGINE_HIVE_YARN_MEMORY, ENGINE_HIVE_YARN_MEMORY_OVERHEAD, ENGINE_HIVE_YARN_QUEUE}
+import org.apache.kyuubi.engine.hive.yarn.HiveYarnClient.{KYUUBI_HIVE_STAGING, KYUUBI_HIVE_YARN_APP_NAME, KYUUBI_HIVE_YARN_APP_TYPE}
 import org.apache.kyuubi.util.KyuubiHadoopUtils
 
-import scala.collection.mutable
+
 
 class HiveYarnClient(val args: ClientArguments, kyuubiConf: KyuubiConf) extends Logging {
 
   private val yarnClient = YarnClient.createYarnClient()
   private val hadoopConf = new YarnConfiguration(KyuubiHadoopUtils.newHadoopConf(kyuubiConf))
+  private val memory = kyuubiConf.get(ENGINE_HIVE_YARN_MEMORY)
+  private val memoryOverhead = kyuubiConf.get(ENGINE_HIVE_YARN_MEMORY_OVERHEAD)
+  private val cores = kyuubiConf.get(ENGINE_HIVE_YARN_CORES)
 
   private var stagingDirPath: Path = _
 
@@ -63,25 +74,62 @@ class HiveYarnClient(val args: ClientArguments, kyuubiConf: KyuubiConf) extends 
 
       verifyClusterResources(newAppResponse)
 
-      val containerContext = createContainerLaunchContext(newAppResponse)
+      val containerContext = createContainerLaunchContext()
     } catch {
       case e: Throwable =>
     }
   }
 
-  private def createContainerLaunchContext(newAppResponse: GetNewApplicationResponse):
-  ContainerLaunchContext = {
+  private def createContainerLaunchContext(): ContainerLaunchContext = {
     info("Setting up container launch context for AM.")
-    val appId = newAppResponse.getApplicationId
+    val launchEnv = setupLunchEnv()
+    val localResources = prepareLocalResources()
 
+    val amContainer = Records.newRecord(classOf[ContainerLaunchContext])
+    import scala.collection.JavaConverters._
+    amContainer.setEnvironment(launchEnv.asJava)
+    amContainer.setLocalResources(localResources.asJava)
+
+    val javaOpts = ListBuffer[String]()
+    javaOpts += "-Xmx" + memory + "m"
+    javaOpts += "-Djava.io.tmpdir=" +
+      buildPath(Environment.PWD.$$(), YarnConfiguration.DEFAULT_CONTAINER_TEMP_DIR)
+    null
   }
 
-  private def setupLunchEnv(stagingDirPath: Path): mutable.HashMap[String, String] = {
+  /**
+   * Setting up the context for submitting application master
+   */
+  private def createApplicationSubmissionContext(app: YarnClientApplication,
+                                                 containerContext: ContainerLaunchContext):
+  ApplicationSubmissionContext = {
+    val appContext = app.getApplicationSubmissionContext
+    appContext.setApplicationName(KYUUBI_HIVE_YARN_APP_NAME)
+    appContext.setApplicationType(KYUUBI_HIVE_YARN_APP_TYPE)
+    appContext.setQueue(kyuubiConf.get(ENGINE_HIVE_YARN_QUEUE))
+    appContext.setAMContainerSpec(containerContext)
+    appContext.setMaxAppAttempts(kyuubiConf.get(ENGINE_HIVE_YARN_MAX_ATTEMPTS))
+    val capability = Records.newRecord(classOf[Resource])
+    capability.setMemorySize(memory + memoryOverhead)
+    capability.setVirtualCores(cores)
+    appContext.setResource(capability)
+    appContext
+  }
+
+
+
+  private def setupLunchEnv(): mutable.HashMap[String, String] = {
     info("Setting up the launch environment for AM container.")
     val env = new mutable.HashMap[String, String]()
 
     env
   }
+
+  private def prepareLocalResources(): mutable.HashMap[String, LocalResource] = {
+    null
+  }
+
+
 
   private def verifyClusterResources(newAppResponse: GetNewApplicationResponse): Unit = {
 
@@ -99,4 +147,6 @@ class HiveYarnClient(val args: ClientArguments, kyuubiConf: KyuubiConf) extends 
 private object HiveYarnClient extends Logging {
 
   val KYUUBI_HIVE_STAGING: String = ".kyuubiHiveStaging"
+  val KYUUBI_HIVE_YARN_APP_NAME: String = "KYUUBI-HIVE-SERVER"
+  val KYUUBI_HIVE_YARN_APP_TYPE: String = "KYUUBI-HIVE"
 }
