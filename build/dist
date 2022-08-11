@@ -259,6 +259,7 @@ cp "$KYUUBI_HOME/externals/kyuubi-hive-sql-engine/target/kyuubi-hive-sql-engine_
 
 # Copy jdbc engines
 cp "$KYUUBI_HOME/externals/kyuubi-jdbc-engine/target/kyuubi-jdbc-engine_${SCALA_VERSION}-${VERSION}.jar" "$DISTDIR/externals/engines/jdbc"
+cp -r "$KYUUBI_HOME/externals/kyuubi-jdbc-engine/target/scala-$SCALA_VERSION/jars/" "$DISTDIR/externals/engines/jdbc"
 
 # Copy kyuubi tools
 if [[ -f "$KYUUBI_HOME/tools/spark-block-cleaner/target/spark-block-cleaner_${SCALA_VERSION}-${VERSION}.jar" ]]; then
